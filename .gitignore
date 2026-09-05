@@ -1,0 +1,10 @@
+build/
+obj_dir/
+*.o
+*.so
+compile_commands.json
+.cache/
+data/
+*.bin
+*.gz
+*.vcd
