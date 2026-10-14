@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Build, then run tests.
+#   ./runtest                  run every test
+#   ./runtest -test NAME       run one test, showing each check
+#   ./runtest -list            list test names
+set -e                          # stop at the first failing command
+cd "$(dirname "$0")"            # work from the repo root, wherever you call it from
+
+cmake -S . -B build > /dev/null
+cmake --build build | grep -Ev '^\[ *[0-9]+%\] (Built|Building|Linking)' || true  # quiet unless warnings/errors
+
+case "$1" in
+    "")    ctest --test-dir build --output-on-failure ;;
+    -list) ctest --test-dir build -N | grep 'Test *#' ;;
+    -test)
+        if [ -z "$2" ] || ! ctest --test-dir build -N | grep -q " $2\$"; then
+            echo "unknown test '$2'. Available:"; ctest --test-dir build -N | grep 'Test *#'; exit 2
+        fi
+        ./build/"$2" ;;
+    *)     echo "usage: ./runtest [-test NAME | -list]"; exit 2 ;;
+esac

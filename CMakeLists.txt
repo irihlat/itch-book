@@ -19,3 +19,13 @@ target_include_directories(census PRIVATE include)  # finds "itch/endian.hpp"
 
 add_executable(orders src/orders.cpp)
 target_include_directories(orders PRIVATE include)
+
+add_executable(cachesim src/cachesim.cpp)
+target_include_directories(cachesim PRIVATE include)
+
+# ---- Tests: run with ./runtest (all) or ./runtest -test NAME ----
+enable_testing()
+
+add_executable(cachesim_basic test/cachesim_basic.cpp)
+target_include_directories(cachesim_basic PRIVATE include test)
+add_test(NAME cachesim_basic COMMAND cachesim_basic)

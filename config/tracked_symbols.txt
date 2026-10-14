@@ -1,0 +1,5 @@
+# Tracked symbols (DESIGN.md §3.3): the 16 busiest by add count on BX 2019-07-30.
+# Combined peak 1,010 live orders vs 1,024 cache slots.
+# One or more per line; anything after # is ignored.
+SPY IWM IWO SOXL AAPL QQQ XLK MSFT
+IWN UVXY XLV IWB GDX OILX DRIP SMH
