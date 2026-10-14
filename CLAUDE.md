@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Read DESIGN.md for architecture and rationale before suggesting anything.
+
 ## RTL is mine
 
 - Never write or edit files under `rtl/`, by any route — including scripts that write files themselves.
