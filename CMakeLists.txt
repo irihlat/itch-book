@@ -1,5 +1,5 @@
 # Build: cmake -S . -B build && cmake --build build
-# Run:   ./build/census data/20190730.BX_ITCH_50
+# Run:   ./build/census data/20190730.BX_ITCH_50   (or ./build/orders ...)
 cmake_minimum_required(VERSION 3.20)
 project(itch_book CXX)  # CXX = C++
 
@@ -16,3 +16,6 @@ add_compile_options(-Wall -Wextra -Wpedantic)  # warnings on
 
 add_executable(census src/census.cpp)
 target_include_directories(census PRIVATE include)  # finds "itch/endian.hpp"
+
+add_executable(orders src/orders.cpp)
+target_include_directories(orders PRIVATE include)
