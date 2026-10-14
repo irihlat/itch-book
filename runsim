@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Build, then run one of the phase 0 programs on the capture file.
+#   ./runsim                 cache simulator sweeps (ways, capacity, policy, tag)
+#   ./runsim orders          order tracker (peaks, lifetimes, busiest symbols)
+#   ./runsim census          message counts by type
+#   ./runsim ... -data FILE  use a different capture file
+set -e
+cd "$(dirname "$0")"            # repo root, wherever you call it from
+
+program=cachesim
+data=data/20190730.BX_ITCH_50
+while [ $# -gt 0 ]; do          # read the arguments one by one
+    case "$1" in
+        cachesim|orders|census) program=$1 ;;
+        -data) data=$2; shift ;;
+        *) echo "usage: ./runsim [cachesim|orders|census] [-data FILE]"; exit 2 ;;
+    esac
+    shift
+done
+
+cmake -S . -B build > /dev/null
+cmake --build build | grep -Ev '^\[ *[0-9]+%\] (Built|Building|Linking)' || true
+
+symbols=$(sed 's/#.*//' config/tracked_symbols.txt)   # strip comments
+case "$program" in
+    census) ./build/census "$data" ;;
+    *)      ./build/$program "$data" $symbols ;;
+esac
