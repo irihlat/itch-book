@@ -510,8 +510,11 @@ and critical path, pLRU vs true LRU area).
 - ~~Fixed-latency non-stalling pipeline, or stall-and-skid-buffer?~~ Answered, §10.5.
 - ~~Where do real ITCH sample files come from for the golden data?~~ Answered, §10.2.
 - Does the top-8 level depth ever empty out on real data? Measure before deciding it's fine.
-- Is 24 tag bits actually enough for the ID distribution in the sample data?
+- ~~Is 24 tag bits actually enough for the ID distribution in the sample data?~~ Answered,
+  §10.8.3.
 - MoldUDP framing: synthesise it, or cut the ingress block from scope? (§10.3)
+- Cache capacity: 1024, 4096 or 8192? Benefit measured on BX in §10.8.5; decide once Nasdaq
+  eviction rates and Vivado cost figures are in.
 
 ---
 
@@ -608,6 +611,7 @@ them from the order ID is still the core problem.
 
 **TO VERIFY** against the spec PDF before relying on any of it:
 `nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification.pdf`
+(Real data agrees with these offsets — see §10.8.1. The PDF check is still to do.)
 
 ### 10.5 §4.5 answered — the pipeline may stall
 
@@ -632,3 +636,99 @@ phase 6.
 `rtl/` is denied to Claude Code via `Edit(**/rtl/**)` in `.claude/settings.json`, enforcing
 rule 3 of §0 structurally rather than by intention. Testbenches live in `bench/`, the C++
 model in `src/`, `include/` and `test/`, all of which are fair game for assistance.
+
+### 10.8 Phase 0 results — BX 2019-07-30 (2026-10-14)
+
+All figures from `data/20190730.BX_ITCH_50` (837 MB, 28.7M messages, 03:06–19:05).
+Reproduce with `runsim census`, `runsim orders`, `runsim`. The cache model is covered by 20
+directed tests (`runtest`), each confirmed to catch a deliberately planted bug.
+
+#### 10.8.1 The data
+
+- **Framing (§10.3) confirmed.** Every byte walked; all 28.7M message lengths match the
+  spec's per-type sizes.
+- **Field offsets (§10.4) agree with the data.** Following every order through the day:
+  0 references to unknown orders, 0 bad side bytes, 0 zero prices, 0 orders left at close.
+  The spec PDF check is still outstanding, but a wrong offset could not produce this.
+- **How orders leave the book:** delete 80.2%, replace 16.1%, full execution 3.7%.
+  Order Cancel (`X`) never removed a whole order — full removals always come as `D`.
+- **Order lifetime:** p10 1.1 ms, median 1.1 s, p90 61 s, p99 815 s. Most orders are gone
+  within a second; a small tail rests for many minutes (the §4.3 "patient order").
+- **Peak live orders, all symbols:** 67,283 at 15:59:34. Nothing like this reaches the
+  cache — the symbol filter decides what does.
+
+#### 10.8.2 Decision: tracked symbols
+
+**The 16 busiest symbols by add count** on the development day (list in
+`config/tracked_symbols.txt`): SPY IWM IWO SOXL AAPL QQQ XLK MSFT IWN UVXY XLV IWB GDX OILX
+DRIP SMH.
+
+Reason:
+- Fills the 4-bit symbol index; more than 16 widens the index and adds a book per symbol
+  for no new learning (§9).
+- Combined peak **1,010 live orders at 15:59:01 vs 1,024 slots** — enough pressure that the
+  §7 sweeps show real differences instead of zero everywhere.
+- A reproducible rule, not a hand-picked list.
+
+Stored as tickers, never locate codes: locates are reassigned daily and resolved from `R`
+messages at startup (§10.4).
+
+#### 10.8.3 Decision: tag width — 24 bits (§4.1, §8)
+
+| Tag bits | 8 | 12 | 16 | 20 | 24 |
+|---|---|---|---|---|---|
+| Aliases (wrong order returned) | 2,596 | 11 | 0 | 0 | 0 |
+
+16 is the measured minimum on BX. **Keep 24**: 8 bits of margin for the full Nasdaq feed,
+where far more orders per day widen the spread of IDs.
+
+#### 10.8.4 Decision: 4-way, pseudo-LRU (§2.3, §4.3)
+
+Evictions as % of adds, 1024 entries:
+
+| Ways | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| pLRU | 12.0% | 5.0% | **2.0%** | 0.78% | 0.30% |
+
+At 4 ways: true LRU 1.92%, **pLRU 1.99%**, random 2.49% (and random has 50% more misses).
+
+Reason:
+- pLRU is within 4% of true LRU for a fraction of the logic — §4.3's claim, now measured.
+- The §4.3 caveat ("LRU is weaker for patient orders") is answered: on this data LRU's
+  guess still clearly beats random.
+- Each doubling of ways cuts evictions ~2.5×, but every way is another comparator on the
+  critical path (§4.6). More capacity buys the same improvement more cheaply (§10.8.5).
+
+#### 10.8.5 OPEN: capacity
+
+4-way pLRU, 24-bit tag:
+
+| Entries | 512 | 1024 | 2048 | 4096 | 8192 |
+|---|---|---|---|---|---|
+| Evictions | 63,591 | 25,092 | 7,404 | 1,518 | 250 |
+| % of adds | 5.1% | 2.0% | 0.59% | 0.12% | 0.02% |
+
+**1024 as designed is not enough**: 25,092 lost orders a day, each one a stale book (§2.4).
+Never zero at any size, so the eviction counter and stale flag stay essential.
+
+Cost estimate (to confirm in Vivado, phase 5): order data is BRAM and cheap at any size; the
+pressure is tag + valid storage for the parallel compare — ~25 kbit at 1024 (flip-flops),
+~100 kbit at 4096 (distributed RAM), ~200 kbit at 8192 (large distributed RAM, or BRAM at
+the cost of an extra cycle and a longer hazard window). Valid-bit reset also grows.
+
+**Deliberately left open.** The benefit side is measured here; the cost side is only an
+estimate. Decide once both are real: eviction rates on a full Nasdaq day, and actual
+utilisation and Fmax from Vivado for the candidate sizes.
+
+#### 10.8.6 Observation: set index is not uniform
+
+Low 8 bits of order IDs across all 10.6M adds: busiest set gets ~17% more than the mean, and
+only 42% of IDs are odd. Low-bit indexing is slightly lopsided. Worth one experiment: does
+XOR-ing upper ID bits into the index reduce evictions?
+
+#### 10.8.7 Remaining in phase 0
+
+- Top-8 depth: does a book's top 8 ever empty from below (§3.5, §8)? Needs price levels in
+  the C++ model.
+- Re-run all of the above on a full Nasdaq day, busy and quiet (§10.2); then close §10.8.5.
+- Decoder tests (`decode_basic`).
